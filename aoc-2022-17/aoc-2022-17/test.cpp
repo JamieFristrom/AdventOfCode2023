@@ -213,15 +213,37 @@ v2 getStartingPos(const deque<Rock>& fallenRocks) {
 
 int64_t doTheThing(int64_t numRocks, const std::string_view& puzzleInput) {
 	deque<Rock> fallenRocks;
+	vector<int64_t> loopPoints;
 	int64_t tick = 0;
 	for (int64_t i = 0; i < numRocks; i++) {
 		const RockFlavor rockFlavor = static_cast<RockFlavor>(i % rockShapes.size());
 		auto [restPos, newtick] = rockFall(fallenRocks, puzzleInput, tick, rockFlavor, getStartingPos(fallenRocks));
 		fallenRocks.emplace_back(Rock{ rockFlavor, restPos });
+		if( newtick / std::ssize(puzzleInput) > tick / std::ssize(puzzleInput)) {
+			// search for loops
+			for( int loopIdx=0; loopIdx<std::ssize(loopPoints); loopIdx++ ) {
+				int64_t k = 0;
+				int64_t loopPoint = loopPoints[loopIdx];
+				for (k = 0; k < 10; k++) {
+					if ((fallenRocks[loopPoint - k].flavor != fallenRocks[std::ssize(fallenRocks) -1 - k].flavor) ||
+						(fallenRocks[loopPoint - k].pos.x != fallenRocks[std::ssize(fallenRocks) -1 -k].pos.x)) {
+						std::cout << "No loop at " << loopPoint << " with " << std::ssize(fallenRocks) << " because different at " << k << std::endl;
+						break;
+					}
+				}
+				if (k == 10) {
+					std::cout << "We might have found a loop! " << loopPoint << " with " << std::ssize(fallenRocks) << std::endl;
+					return 0;
+				}
+			}
+			loopPoints.push_back(fallenRocks.size());
+		}
+
 		tick = newtick;
 	}
 	return getHighestRockY(fallenRocks);
 }
+
 
 TEST(rocks, inputLength) {
 	auto puzzleInput = getPuzzleInput();
@@ -232,9 +254,6 @@ TEST(rocks, partOne) {
 	EXPECT_EQ(3109, doTheThing(2022, getPuzzleInput()));
 }
 
-TEST(rocks, partOne) {
-	EXPECT_EQ(3109, doTheThing(2022, getPuzzleInput()));
-}
 TEST(rocks, rockNextToFloor_rockStops) {
 	auto flavor = 0;
 	auto rockPos = v2{ 1, 0 };
@@ -311,4 +330,9 @@ TEST(rocks, rock12IntersetionTests) {
 	EXPECT_FALSE(rocksIntersect(Rock{ 1, v2{0,0} }, Rock{ 2, v2{2,0} }));
 	EXPECT_FALSE(rocksIntersect(Rock{ 2, v2{2,0} }, Rock{ 1, v2{0,0} }));
 	EXPECT_TRUE(rocksIntersect(Rock{ 1, v2{0,0} }, Rock{ 2, v2{1,0} }));
+}
+
+
+TEST(rocks, zPartTwo) {
+	EXPECT_EQ(0, doTheThing(1000000000, getPuzzleInput()));
 }

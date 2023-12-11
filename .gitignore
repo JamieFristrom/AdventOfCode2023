@@ -16,3 +16,4 @@ Microsoft.googletest.*
 *.testlog
 *.recipe
 *.log
+Browse.VC.*
