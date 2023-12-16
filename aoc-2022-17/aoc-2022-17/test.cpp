@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <deque>
+#include <format>
+#include <functional>
 
 using namespace std;
 
@@ -71,6 +73,8 @@ struct Rock {
 public:
 	RockFlavor flavor = 0;
 	v2 pos;  // lower left corner is origin
+	int64_t tickCameToRest=0;
+
 	int64_t rightBound() { return pos.x + ssize(rockShapes[flavor][0]); }
 	int64_t topBound() { return pos.y + ssize(rockShapes[flavor]); }
 };
@@ -131,11 +135,19 @@ v2 rockBlow(const deque<Rock>& fallenRocks, RockFlavor flavor, const v2& pos, in
 	}
 
 	Rock newRock(flavor, newPos);
-	for (const auto& fallenRock : fallenRocks) {
-		if (rocksIntersect(newRock, fallenRock)) {
+	for (auto fallenRock = fallenRocks.rbegin(); fallenRock != fallenRocks.rend(); ++fallenRock) {
+		if (fallenRock->pos.y < newRock.pos.y - 100) {  // hopefully that's safe
+			break;
+		}
+		if (rocksIntersect(newRock, *fallenRock)) {
 			return pos;
 		}
 	}
+	//for (const auto& fallenRock : fallenRocks) {
+	//	if (rocksIntersect(newRock, fallenRock)) {
+	//		return pos;
+	//	}
+	//}
 	return newPos;
 }
 
@@ -148,8 +160,11 @@ std::tuple<bool, v2> rockFallStep(const deque<Rock>& fallenRocks, RockFlavor fla
 			return { true, pos };
 		}
 	}
-	for (const auto& fallenRock: fallenRocks) {
-		if (rocksIntersect(newRock, fallenRock)) {
+	for (auto fallenRock = fallenRocks.rbegin(); fallenRock != fallenRocks.rend(); ++fallenRock ) {
+		if (fallenRock->pos.y < newRock.pos.y - 100) {  // hopefully that's safe
+			break;
+		}
+		if (rocksIntersect(newRock, *fallenRock)) {
 			return { true, pos };
 		}
 	}
@@ -190,6 +205,11 @@ Container::value_type qMaxElementValue(const Container& c) {
 	return *std::max_element(c.begin(), c.end());
 }
 
+template<typename Container>
+auto qFindIf(const Container& c, std::function<bool(typename Container::value_type)> predicate) {
+	return std::find_if(c.begin(), c.end(), predicate);
+}
+
 int64_t getHighestRockY(const deque<Rock>& fallenRocks) {
 	// it is possible for the last rock to fall past the highest rock, so we have to work for it
 	// bet this is too slow
@@ -213,30 +233,45 @@ v2 getStartingPos(const deque<Rock>& fallenRocks) {
 
 int64_t doTheThing(int64_t numRocks, const std::string_view& puzzleInput) {
 	deque<Rock> fallenRocks;
-	vector<int64_t> loopPoints;
+	vector<int64_t> loopPoints;     //how many rocks have fallen after puzzle input
+	vector<int64_t> loopPointTicks; //what tick we're on after rock falls 
 	int64_t tick = 0;
 	for (int64_t i = 0; i < numRocks; i++) {
 		const RockFlavor rockFlavor = static_cast<RockFlavor>(i % rockShapes.size());
 		auto [restPos, newtick] = rockFall(fallenRocks, puzzleInput, tick, rockFlavor, getStartingPos(fallenRocks));
-		fallenRocks.emplace_back(Rock{ rockFlavor, restPos });
+		fallenRocks.emplace_back(Rock{ rockFlavor, restPos, newtick });
 		if( newtick / std::ssize(puzzleInput) > tick / std::ssize(puzzleInput)) {
 			// search for loops
 			for( int loopIdx=0; loopIdx<std::ssize(loopPoints); loopIdx++ ) {
 				int64_t k = 0;
 				int64_t loopPoint = loopPoints[loopIdx];
-				for (k = 0; k < 10; k++) {
-					if ((fallenRocks[loopPoint - k].flavor != fallenRocks[std::ssize(fallenRocks) -1 - k].flavor) ||
-						(fallenRocks[loopPoint - k].pos.x != fallenRocks[std::ssize(fallenRocks) -1 -k].pos.x)) {
-						std::cout << "No loop at " << loopPoint << " with " << std::ssize(fallenRocks) << " because different at " << k << std::endl;
-						break;
+				const auto loopPointTick = loopPointTicks[loopIdx];
+				const auto rockFinishedOffset = loopPointTick % std::ssize(puzzleInput);
+				if (rockFinishedOffset != newtick % std::ssize(puzzleInput)) {
+					std::cout << std::format("No loop at {} with {}: tick offsets don't match\n", loopPoint, tick);
+					break;
+				}
+				for (k = 0; k < 20; k++) {
+					if ((fallenRocks[loopPoint - k -1].flavor != fallenRocks[std::ssize(fallenRocks) -1 - k].flavor) ||
+						(fallenRocks[loopPoint - k -1].pos.x != fallenRocks[std::ssize(fallenRocks) -1 -k].pos.x)) {
+						auto oldVertOffset = fallenRocks[loopPoint - k - 1].pos.y - fallenRocks[loopPoint - k - 2].pos.y;
+						auto newVertOffset = fallenRocks[std::ssize(fallenRocks) - k - 1].pos.y - fallenRocks[std::ssize(fallenRocks) - k - 2].pos.y;
+						if (oldVertOffset != newVertOffset) {
+							std::cout << "No loop at " << loopPoint << " with " << std::ssize(fallenRocks) << " because different at " << k << std::endl;
+							break;
+						}
 					}
 				}
-				if (k == 10) {
+				if (k == 20) {
 					std::cout << "We might have found a loop! " << loopPoint << " with " << std::ssize(fallenRocks) << std::endl;
+					auto foundRock = qFindIf(fallenRocks, [modpoint = 1000000000000 % std::ssize(fallenRocks)](const Rock& rock) { return rock.tickCameToRest >= modpoint; });
+					std::cout << std::format("Offset rock for gigapoint: flavor {}, y {}\n", foundRock->flavor, foundRock->pos.y);
+					// what's the height at 1000000000000 
 					return 0;
 				}
 			}
 			loopPoints.push_back(fallenRocks.size());
+			loopPointTicks.push_back(newtick);
 		}
 
 		tick = newtick;
