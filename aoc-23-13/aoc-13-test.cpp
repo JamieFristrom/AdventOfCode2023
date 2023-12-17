@@ -53,7 +53,8 @@ bool colsMatch(const Map& map, int colA, int colB) {
 	return true;
 }
 
-std::optional<int> findReflection(const Map& map, const int64_t bound, const std::function<bool(const Map&, int, int)> matchingFn) {
+std::vector<int> findReflection(const Map& map, const int64_t bound, const std::function<bool(const Map&, int, int)> matchingFn) {
+	std::vector<int> result;
 	for (int slice = 1; slice < bound; slice++) {
 		bool doRowsMatch = true;
 			for (int rowA = slice - 1, rowB = slice;
@@ -65,35 +66,86 @@ std::optional<int> findReflection(const Map& map, const int64_t bound, const std
 			}
 		}
 		if (doRowsMatch) {
-			return slice;
+			result.emplace_back(slice);
 		}
 	}
-	return std::nullopt;
+	return result;
 }
 
 // finding a vertical reflection for me means finding the horizontal line across which it reflects vertically,
 // the opposite of what the puzzle talks about
-std::optional<int> findVerticalReflection(const Map& map) {
+std::vector<int> findVerticalReflection(const Map& map) {
 	return findReflection(map, std::ssize(map), rowsMatch);
 }
 
-std::optional<int> findHorizontalReflection(const Map& map) {
+std::vector<int> findHorizontalReflection(const Map& map) {
 	return findReflection(map, std::ssize(map[0]), colsMatch);
 }
 
-int findReflectionValue(const Map& map) {
-	if (auto result = findVerticalReflection(map)) {
-		return result.value()*100;
+std::optional<int> findReflectionValue(const Map& map) {
+	auto result = findVerticalReflection(map);
+	if( !result.empty()) {
+		return result[0] * 100;
 	}
-	return findHorizontalReflection(map).value();  // will crash if there's nothing but that's supposed to be impossible, I think
+	auto resultH = findHorizontalReflection(map);
+	if (!resultH.empty()) {
+		return resultH[0];
+	}
+	return std::nullopt;
+}
+
+int doTheThingX(const std::string& input, const std::function<std::optional<int>(const Map& map)> evaluatorFn) {
+	auto maps = parseInput(input);
+	const int sum = pAccumulate(maps, 0, [&evaluatorFn](const int sum, const Map& map) {
+		return sum + evaluatorFn(map).value();
+		});
+	return sum;
+}
+
+int findSmudgedReflectionValue(const Map& map) {
+	std::vector<int> oldHorizontal = findHorizontalReflection(map);
+	assert(oldHorizontal.size() <= 1);
+	std::vector<int> oldVertical = findVerticalReflection(map);
+	assert(oldVertical.size() <= 1);
+	auto oldReflectionValue = findReflectionValue(map);
+	for (int y = 0; y < map.size(); y++) {
+		for (int x = 0; x < map[y].size(); x++) {
+			Map mapCopy = map;
+			mapCopy[y][x] = !mapCopy[y][x];
+			const auto newHorizontal = findHorizontalReflection(mapCopy);
+			const auto newVertical = findVerticalReflection(mapCopy);
+			if (!newHorizontal.empty()) {
+				if (oldHorizontal.empty()) {
+					return newHorizontal[0];
+				}
+				for (const auto& horizontal : newHorizontal) {
+					if (horizontal != oldHorizontal[0]) {
+						return horizontal;
+					}
+				}
+			}
+			if (!newVertical.empty()) {
+				if (oldVertical.empty()) {
+					return newVertical[0]*100;
+				}
+				for (const auto& vertical : newVertical) {
+					if (vertical != oldVertical[0]) {
+						return vertical*100;
+					}
+				}
+			}
+		}
+	}
+	assert(false);
+	return 0;
 }
 
 int doTheThing(const std::string& input) {
-	auto maps = parseInput(input);
-	const int sum = pAccumulate(maps, 0, [](const int sum, const Map& map) {
-		return sum + findReflectionValue(map);
-		});
-	return sum;
+	return doTheThingX(input, findReflectionValue);
+}
+
+int doTheThing2(const std::string& input) {
+	return doTheThingX(input, findSmudgedReflectionValue);
 }
 
 const std::string sampleData = 
@@ -118,7 +170,7 @@ TEST(HelloTest, twoEqualRows_findVerticalReflection_middle) {
 	Map map = Map{ {true,false,false,true,true},
 		{true,false,false,true,true} };
 
-	ASSERT_EQ(1, findVerticalReflection(map).value());
+	ASSERT_EQ(1, findVerticalReflection(map)[0]);
 }
 
 
@@ -129,14 +181,14 @@ TEST(HelloTest, fiveRows_findVerticalReflection_slice2) {
 		{true,false},
 		{false,true} };
 
-	ASSERT_EQ(2, findVerticalReflection(map).value());
+	ASSERT_EQ(2, findVerticalReflection(map)[0]);
 }
 
 TEST(HelloTest, findReflectionTest) {
 	Map map = Map{ {true,false,false,true,true},
 		{true,false,false,true,true} };
 
-	ASSERT_EQ(2, findHorizontalReflection(map).value());
+	ASSERT_EQ(2, findHorizontalReflection(map)[0]);
 }
 
 TEST(HelloTest, ParseTest) {
@@ -1581,5 +1633,10 @@ R"(
 )";
 
 TEST(HelloTest, puzzleInput_doTheThing) {
-	ASSERT_EQ(0, doTheThing(puzzleInput));
+	ASSERT_EQ(36041, doTheThing(puzzleInput));
+}
+
+
+TEST(HelloTest, puzzleInput_doTheThing2) {
+	ASSERT_EQ(0, doTheThing2(puzzleInput));
 }
