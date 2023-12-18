@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <queue>
 #include <optional>
 #include <regex>
+#include <variant>
 
 #include "pex.h"
 
@@ -14,15 +17,15 @@ using namespace pex;
 template<typename IntType>
 void floodFill(
 	std::vector<std::vector<IntType>>& map,
-	int startX,
-	int startY) {
-	std::queue<std::pair<int, int>> fillPoints;
+	int64_t startX,
+	int64_t startY) {
+	std::queue<std::pair<int64_t, int64_t>> fillPoints;
 	fillPoints.push({ startX,startY });
 	for (;!fillPoints.empty();) {
 		auto next = fillPoints.front();
 		fillPoints.pop();
-		int x = next.first;
-		int y = next.second;
+		int64_t x = next.first;
+		int64_t y = next.second;
 		if (map[y][x] == 0) {
 			map[y][x] = 1;
 			fillPoints.push({ x - 1, y });
@@ -33,13 +36,153 @@ void floodFill(
 	}
 }
 
+void outGrid(const std::vector < std::vector<int8_t>>& grid) {
+	for (const auto& row : grid) {
+		for (const auto& cell : row) {
+			std::cout << char(cell + '0');
+		}
+		std::cout << std::endl;
+	}
+}
+
 struct DigInstruction {
 	char dir;
-	int steps;
+	int64_t meters;
 	uint32_t rgb;
 };
 
-constexpr int gridRadius = 512;
+constexpr int64_t gridRadius = 512;
+
+struct Mesh {
+	std::vector<int64_t> horizontalPoints;
+	std::vector<int64_t> verticalPoints;
+	std::vector<std::vector<int8_t>> grid;
+	std::size_t idxForX(const int64_t x) const {
+		std::size_t result = std::distance(horizontalPoints.begin(), 
+			std::lower_bound(horizontalPoints.begin(), horizontalPoints.end(), x));
+		assert(horizontalPoints[result] == x);  // the way I've designed this, should be true
+		return result;
+	}
+	std::size_t idxForY(const int64_t y) const {
+		std::size_t result = std::distance(verticalPoints.begin(),
+			std::lower_bound(verticalPoints.begin(), verticalPoints.end(), y));
+		assert(verticalPoints[result] == y);
+		return result;
+	}
+	int64_t cellSize(const std::size_t x, const std::size_t y) const {
+		int64_t left = horizontalPoints[x];
+		int64_t right = horizontalPoints[x + 1];
+		int64_t top = verticalPoints[y];
+		int64_t bottom = verticalPoints[y + 1];
+		return (right - left) * (bottom - top);
+	}
+};
+
+Mesh createMesh(std::vector<DigInstruction> steps) {
+	std::set<int64_t> horizontalPointSet;
+	std::set<int64_t> verticalPointSet;
+	Mesh mesh;
+	int64_t x = 0;
+	int64_t y = 0;
+	for (const auto& step : steps) {
+		horizontalPointSet.insert(x);
+		horizontalPointSet.insert(x + 1);
+		verticalPointSet.insert(y);
+		verticalPointSet.insert(y + 1);
+		switch (step.dir) {
+		case 'U': y -= step.meters; break;
+		case 'D': y += step.meters; break;
+		case 'L': x -= step.meters; break;
+		case 'R': x += step.meters; break;
+		}
+	}
+	for (const auto& point : horizontalPointSet) {
+		std::cout << point << " ";
+	}
+	std::cout << std::endl;
+	for (const auto& point : verticalPointSet) {
+		std::cout << point << " ";
+	}
+	std::cout << std::endl;
+	mesh.horizontalPoints = std::vector(horizontalPointSet.begin(), horizontalPointSet.end());
+	mesh.verticalPoints = std::vector(verticalPointSet.begin(), verticalPointSet.end());
+	mesh.grid.resize(mesh.verticalPoints.size());
+	for (auto& row : mesh.grid) {
+		row.resize(mesh.horizontalPoints.size());
+	}
+	return mesh;
+}
+
+void digMeshBorder(Mesh& mesh, std::vector<DigInstruction> steps) {
+	int64_t x = 0;
+	int64_t y = 0;
+	for (const auto& step : steps) {
+		std::size_t xIdx = mesh.idxForX(x);
+		std::size_t yIdx = mesh.idxForY(y);
+		switch (step.dir) {
+		case 'U':
+			y -= step.meters;
+			for (;mesh.verticalPoints[yIdx] > y;yIdx--) {
+				mesh.grid[yIdx][xIdx] = 1;
+			}
+			break;
+		case 'D':
+			y += step.meters;
+			for (; mesh.verticalPoints[yIdx] < y; yIdx++) {
+				mesh.grid[yIdx][xIdx] = 1;
+			}
+			break;
+		case 'L':
+			x -= step.meters;
+			for (; mesh.horizontalPoints[xIdx] > x; xIdx--) {
+				mesh.grid[yIdx][xIdx] = 1;
+			}
+			break;
+		case 'R':
+			x += step.meters;
+			for (; mesh.horizontalPoints[xIdx] < x; xIdx++) {
+				mesh.grid[yIdx][xIdx] = 1;
+			}
+			break;
+		}
+	}
+}
+//struct BP {
+//	enum class Dir {
+//		Horiz,
+//		Vert
+//	};
+//	enum class Side {
+//		Inside,
+//		Outside
+//	};
+//	Dir dir;
+//	int x;
+//	int y;
+//	int len;
+//	std::variant<Side, std::unique_ptr<BP>> positiveLeaf;
+//	std::variant<Side, std::unique_ptr<BP>> negativeLeaf;
+//
+//	void refine(std::vector<DigInstruction>::iterator nextStep, bool insideRight) {
+//		len = nextStep->meters;
+//		int newx = x;
+//		int newy = y;
+//		if (nextStep->dir == 'R') {
+//			newx = x + len;
+//			
+//		}
+//		else if (nextStep->dir == 'L') {
+//			newx = x - len;
+//		}
+//		else if (nextStep->dir == 'U') {
+//			newy = y - len;
+//		}
+//		else if (nextStep->dir == 'D') {
+//			newy = y + len;
+//		}
+//	}
+//};
+
 
 // The digger starts in a 1 meter cube hole in the ground. 
 // They then dig the specified number of meters up (U), down (D), left (L), or right (R), 
@@ -51,10 +194,10 @@ std::vector<std::vector<int8_t>> digBorder(const std::vector<DigInstruction>& in
 	for (auto& row : ground) {
 		row.resize(gridRadius*2);
 	}
-	int x = gridRadius;
-	int y = gridRadius;
+	int64_t x = gridRadius;
+	int64_t y = gridRadius;
 	for (const auto& instruction : input) {
-		for (int i = 0; i < instruction.steps; i++) {
+		for (int64_t i = 0; i < instruction.meters; i++) {
 			ground[y][x] = 1;
 			switch (instruction.dir) {
 			case 'U': y--; break;
@@ -67,47 +210,73 @@ std::vector<std::vector<int8_t>> digBorder(const std::vector<DigInstruction>& in
 	return ground;
 }
 
-std::tuple<int, int, int, int> measureBounds(const std::vector<DigInstruction>& instructions) {
-	int left = 0;
-	int right = 0;
-	int top = 0;
-	int bottom = 0;
-	int x = 0; 
-	int y = 0;
+std::tuple<int64_t, int64_t, int64_t, int64_t> measureBounds(const std::vector<DigInstruction>& instructions) {
+	int64_t left = 0;
+	int64_t right = 0;
+	int64_t top = 0;
+	int64_t bottom = 0;
+	int64_t x = 0; 
+	int64_t y = 0;
+	char lastDir = 'X';
 	for (const auto& instruction : instructions) {
 		left = std::min(x, left);
 		right = std::max(x, right);
 		top = std::min(y, top);
 		bottom = std::max(y, bottom);
+		assert(lastDir != instruction.dir);
+		lastDir = instruction.dir;
 		switch(instruction.dir) {
-			case 'U': y-=instruction.steps; break;
-			case 'D': y+=instruction.steps; break;
-			case 'L': x-=instruction.steps; break;
-			case 'R': x+=instruction.steps; break;
+			case 'U': y-=instruction.meters; break;
+			case 'D': y+=instruction.meters; break;
+			case 'L': x-=instruction.meters; break;
+			case 'R': x+=instruction.meters; break;
 		}
 	}
 	return { left,right,top,bottom };
 }
 
-int countHoles(const std::vector<std::vector<int8_t>> ground) {
-	const int result = pAccumulate(ground, 0, [](const int k, const auto& row) {
-		return k + pAccumulate(row, 0, [](const int k, const auto& cell) {
+int64_t countHoles(const std::vector<std::vector<int8_t>> ground) {
+	const int64_t result = pAccumulate(ground, 0ll, [](const int64_t k, const auto& row) {
+		return k + pAccumulate(row, 0ll, [](const int64_t k, const auto& cell) {
 			return k + cell;
 			});
 		});
 	return result;
 }
 
-std::vector<std::vector<int8_t>> fillBorder(const std::vector<std::vector<int8_t>>& ground) {
+int64_t countMeshHoles(const Mesh& mesh) {
+	int64_t sum = 0;
+	for (std::size_t row = 0; row < mesh.verticalPoints.size(); row++) {
+		for (std::size_t col = 0; col < mesh.horizontalPoints.size(); col++) {
+			if (mesh.grid[row][col]) {
+				sum += mesh.cellSize(col, row);
+			}
+		}
+	}
+	return sum;
+}
+
+std::vector<std::vector<int8_t>> fillBorder(const std::vector<std::vector<int8_t>>& ground, 
+	const int64_t startX,
+	const int64_t startY) {
 	std::vector<std::vector<int8_t>> groundCopy = ground;
-	floodFill(groundCopy, gridRadius+1, gridRadius+1);
+	floodFill(groundCopy, startX, startY);
 	return groundCopy;
 }
 
-int doTheThing(const std::vector<DigInstruction>& input) {
+int64_t doTheThing(const std::vector<DigInstruction>& input) {
+	Mesh mesh = createMesh(input);
+	digMeshBorder(mesh, input);
+	std::size_t meshX = mesh.idxForX(0);
+	std::size_t meshY = mesh.idxForY(0);
+	floodFill(mesh.grid, int64_t(meshX+1), int64_t(meshY+1));
+	int64_t resultMethod1 = countMeshHoles(mesh);
+
 	const auto ground = digBorder(input);
-	const auto filledGround = fillBorder(ground);
-	return countHoles(filledGround);
+	const auto filledGround = fillBorder(ground, gridRadius+1, gridRadius+1);
+	int64_t resultMethod2 = countHoles(filledGround);
+	assert(resultMethod1 == resultMethod2);
+	return resultMethod1;
 }
 
 std::vector<DigInstruction> transformInstructions(const std::vector<DigInstruction>& input) {
@@ -118,7 +287,7 @@ std::vector<DigInstruction> transformInstructions(const std::vector<DigInstructi
 			(dir == 1) ? 'D' :
 			(dir == 2) ? 'L' :
 			(dir == 3) ? 'U' : 'X',
-			static_cast<int>(inst.rgb >> 4),
+			static_cast<int64_t>(inst.rgb >> 4),
 			0 };
 		assert(result.dir != 'X');
 		return result;
@@ -126,11 +295,18 @@ std::vector<DigInstruction> transformInstructions(const std::vector<DigInstructi
 	return newInstructions;
 }
 
-int doTheThing2(const std::vector<DigInstruction>& input) {
+int64_t doTheThing2(const std::vector<DigInstruction>& input) {
 	auto newInstructions = transformInstructions(input);
-	const auto [left, right, top, bottom] = measureBounds(newInstructions);
-	std::cout << std::format("{}, {}, {}, {}", left, right, top, bottom) << std::endl;
-	return 0;
+	Mesh mesh = createMesh(newInstructions);
+	digMeshBorder(mesh, newInstructions);
+	outGrid(mesh.grid);
+	std::size_t meshX = mesh.idxForX(0);
+	std::size_t meshY = mesh.idxForY(0);
+	floodFill(mesh.grid, int64_t(meshX + 1), int64_t(meshY + 1));
+
+	outGrid(mesh.grid);
+	int64_t resultMethod1 = countMeshHoles(mesh);
+	return resultMethod1;
 }
 
 std::vector<DigInstruction> sampleInput = {
@@ -162,7 +338,7 @@ TEST(Aoc18Test, sampleInput_doTheThing1_62) {
 
 
 TEST(Aoc18Test, sampleInput_doTheThing2) {
-	ASSERT_EQ(0, doTheThing2(sampleInput));
+	ASSERT_EQ(952408144115, doTheThing2(sampleInput));
 }
 TEST(Aoc18Test, TestTest) {
 	ASSERT_EQ(1, 1);
@@ -945,10 +1121,10 @@ std::vector<DigInstruction> puzzleInput = {
 };
 
 TEST(Aoc18Test, puzzleInput_doTheThing1_0) {
-	ASSERT_EQ(0, doTheThing(puzzleInput));
+	ASSERT_EQ(62500, doTheThing(puzzleInput));
 }
 
 
 TEST(Aoc18Test, puzzleInput_doTheThing2_0) {
-	ASSERT_EQ(0, doTheThing2(puzzleInput));
+	ASSERT_EQ(952408144115, doTheThing2(puzzleInput));
 }
