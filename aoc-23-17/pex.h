@@ -132,12 +132,15 @@ namespace pex {
 }
 
 // this is becoming a grab bag
+
 struct Vec2 {
 	int64_t x;
 	int64_t y;
 	Vec2 operator+(const Vec2& v2) const { return {v2.x+x,v2.y+y}; }
 	void operator+=(const Vec2& v2) { x += v2.x; y += v2.y; };
 	Vec2 operator-(const Vec2& v2) const { return { x - v2.x, y - v2.y }; }
+	Vec2 operator-() const { return { -x,-y }; }
+	Vec2 operator*(const int64_t k) const { return { x * k, y * k }; }
 	const bool operator==(const Vec2& v2) const { return x == v2.x && y == v2.y; }
 };
 
@@ -149,11 +152,14 @@ template <typename T>
 Grid<T> parseGrid(const std::string& input) {
 	const auto rows = pex::pSplit(input, '\n');
 	Grid<T> grid;
+	int64_t lastwidth=0; // for debugging/checking
 	for (const auto& row : rows) {
 		std::vector<char> newRow;
 		for (int x = 0; x < row.size(); x++) {
 			newRow.emplace_back(row[x]);
 		}
+		assert((lastwidth==0)||(newRow.size() == lastwidth));
+		lastwidth = newRow.size();
 		grid.emplace_back(newRow);
 	}
 	return grid;

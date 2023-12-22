@@ -9,26 +9,27 @@ using namespace pex;
 
 using HeatMap = Grid8;
 
-using CostMap = Grid<int32_t>;
-
 const std::vector<Vec2> dirs{ {0,-1}, {1,0}, {0,1}, {-1,0} };  // never eat shredded wheat
 
-bool willBeFourInARow(const std::vector<Vec2> routeSoFar, const Vec2& nextDelta) {
-    auto lastStep = routeSoFar.rbegin();
-    int count = 0;
-    for (auto stepIt = lastStep + 1; stepIt != routeSoFar.rend() || count>=3; ++stepIt, ++count) { // I always find it unintuitive that you increment the iterator to go in reverese
-        if (*lastStep - *stepIt != nextDelta) {
-            return false;
-        }
-        else {
-            if (count >= 2) {
-                return true;
-            }
-        }
-        lastStep = stepIt;
-    }
-    return false;
-}
+//bool willBeFourInARow(const std::vector<Vec2> routeSoFar, const Vec2& nextDelta) {
+//    auto lastStep = routeSoFar.rbegin();
+//    int count = 0;
+//    for (auto stepIt = lastStep + 1; stepIt != routeSoFar.rend() || count>=3; ++stepIt, ++count) { // I always find it unintuitive that you increment the iterator to go in reverese
+//        if (*lastStep - *stepIt != nextDelta) {
+//            return false;
+//        }
+//        else {
+//            if (count >= 2) {
+//                return true;
+//            }
+//        }
+//        lastStep = stepIt;
+//    }
+//    return false;
+//}
+
+using StepCode = int64_t;
+
 
 int costSoFar(const HeatMap& heatMap, const std::vector<Vec2>& routeSoFar) {
     const auto result = pReduce(pTransform<std::vector<int>>(routeSoFar, [&heatMap](const Vec2& xy) {
@@ -37,26 +38,91 @@ int costSoFar(const HeatMap& heatMap, const std::vector<Vec2>& routeSoFar) {
     return result;
 }
 
-// bests grid 0-2; best with 2,1, and 0 steps left going N
-// bests grid 3-5; best with 2,1, and 0 steps left going E
-// bests grid 6-8, S; 9-11, w
-int64_t getStepCode(const HeatMap& heatMap, const std::vector<Vec2>& routeSoFar) {
-    if (routeSoFar.size() == 1) {
-        return 2;  // arbitrary
-    }
-    auto lastStep = routeSoFar.rbegin();
-    auto stepIt = lastStep + 1;
-    auto delta = *lastStep - *stepIt;
-    lastStep = stepIt;
-    int stepCount = 0;
-    for (++stepIt; stepIt != routeSoFar.rend() || stepCount >= 3; ++stepIt, ++stepCount) { // I always find it unintuitive that you increment the iterator to go in reverese
-        if (*lastStep - *stepIt != delta) {
-            break;
-        }
-    }
+//// bests grid 0-2; best with 2,1, and 0 steps left going N
+//// bests grid 3-5; best with 2,1, and 0 steps left going E
+//// bests grid 6-8, S; 9-11, w
+//int64_t getStepCode(const HeatMap& heatMap, const std::vector<Vec2>& routeSoFar) {
+//    if (routeSoFar.size() == 1) {
+//        return 2;  // arbitrary
+//    }
+//    auto lastStep = routeSoFar.rbegin();
+//    auto stepIt = lastStep + 1;
+//    auto delta = *lastStep - *stepIt;
+//    lastStep = stepIt;
+//    int stepCount = 0;
+//    for (++stepIt; stepIt != routeSoFar.rend() || stepCount >= 3; ++stepIt, ++stepCount) { // I always find it unintuitive that you increment the iterator to go in reverese
+//        if (*lastStep - *stepIt != delta) {
+//            break;
+//        }
+//    }
+//    int64_t dirCode = std::distance(dirs.begin(), std::find(dirs.begin(), dirs.end(), delta));
+//    return dirCode * 3 + stepCount;
+//}
+
+StepCode getStepCode(const Vec2& step, const Vec2& lastStep, const StepCode lastStepCode) {
+    const Vec2 delta = step - lastStep;
     int64_t dirCode = std::distance(dirs.begin(), std::find(dirs.begin(), dirs.end(), delta));
-    return dirCode * 3 + stepCount;
+    if (lastStepCode==-1 || dirCode != lastStepCode % 4) {
+        return dirCode;
+    }
+    else {
+        // same direction
+        const auto result = lastStepCode + 4;
+        return result;
+    }
 }
+
+bool willBeFourInARow(const Vec2& step, const Vec2& lastStep, const StepCode lastStepCode) {
+    StepCode stepCode = getStepCode(step, lastStep, lastStepCode);
+    return stepCode >= 12;
+}
+
+struct MemoNode {
+    int minCost = INT_MAX;
+    Vec2 lastStep = Vec2(-1, -1);
+    StepCode lastStepCode = -1;
+};
+
+struct MemoNode2 {
+    int minCost = INT_MAX;
+    Vec2 spot = Vec2(-1, -1);
+    int lastCardinalDir = -1;
+    int lastNumSteps = 0;
+    int totalStepsInLine = 0;
+};
+
+using MemoGrids = std::vector<Grid<MemoNode>>;
+
+
+bool visited(MemoGrids& bests, const Vec2& lastStep, const StepCode lastStepCode, const Vec2& nextStep) {
+    // we have to trace our route back if we want to find out if this particular route has visited that
+    // step before
+    Vec2 tracerStep = lastStep;
+    auto tracerStepCode = lastStepCode;
+    for (;;) {
+        if (tracerStepCode == -1) {
+            return false;
+        }
+        if (tracerStep.x == nextStep.x && tracerStep.y == nextStep.y) {
+            return true;
+        }
+        const auto lastStep = bests[tracerStepCode][tracerStep.y][tracerStep.x].lastStep;
+        tracerStepCode = bests[tracerStepCode][tracerStep.y][tracerStep.x].lastStepCode;
+        tracerStep = lastStep;
+    }
+}
+
+// sticking with recursion because it's the only way I can think of to have a k "visited" step...
+// though another method might be a hash...?
+//void minimumHeat2(
+//    const HeatMap& heatMap,
+//    std::vector<std::vector<std::vector<std::vector<MemoNode>>>>& bests,  // num steps then dir then y then x 
+//    Grid<bool>& visited,
+//    const Vec2& step,  // a "step" by this method can travel several squares
+//    const Vec2& lastStep) {
+//
+//    
+//}
 
 // does memoizing require knowing where we've visited? that would be a ridiculous sized table
 // the three step limit seems to ruin regular memoization; a best path a1-a2-a3 might not be best for
@@ -64,57 +130,268 @@ int64_t getStepCode(const HeatMap& heatMap, const std::vector<Vec2>& routeSoFar)
 //  simpler problem, start upper left, go to lower left. wiggling around the 3 is necessary 
 //  11311
 //  11111 
-void minimumHeat(const HeatMap& heatMap, std::vector<Grid<int>>& bests, const Vec2& nextStep, const std::vector<Vec2>& routeSoFar) {
-    const auto step = routeSoFar.back();
-    const auto cost = costSoFar(heatMap, routeSoFar);
-    const auto stepCode = getStepCode(heatMap, routeSoFar);
-    if ( cost >= bests[stepCode][step.y][step.x]) {
+void minimumHeat(
+    const HeatMap& heatMap, 
+    MemoGrids& bests, 
+    Grid<bool>& visited,
+    const Vec2& step, 
+    const Vec2 &lastStep, 
+    const int64_t lastStepCode) {
+
+    const auto cost = (lastStepCode==-1)?0:heatMap[step.y][step.x] + bests[lastStepCode][lastStep.y][lastStep.x].minCost;
+    const auto stepCode = getStepCode(step, lastStep, lastStepCode);
+
+    assert(stepCode < 12);
+    if ( cost >= bests[stepCode][step.y][step.x].minCost) {
         return;  // discard this line of inquiry
     }
-    bests[stepCode][step.y][step.x] = cost;
+    visited[step.y][step.x] = true;
+    bests[stepCode][step.y][step.x].minCost = cost;
+    bests[stepCode][step.y][step.x].lastStep = lastStep;
+    bests[stepCode][step.y][step.x].lastStepCode = lastStepCode;
     if ((step.y == gridHeight(heatMap) - 1) && (step.x == gridWidth(heatMap) - 1)) {
+        visited[step.y][step.x] = false;
         return;
     }
-    int minHeat = INT_MAX;
+
     for (const auto& dir : dirs) {
         const auto nextStep = step + dir;
         if (inBounds(heatMap, nextStep)) {
-            if (!pContains(routeSoFar, nextStep)) {
+            //if (!visited(bests, lastStep, lastStepCode, nextStep)) {
+            if( !visited[nextStep.y][nextStep.x]) {
                 // not four in a row
-                if (!willBeFourInARow(routeSoFar, dir)) {
+                if (!willBeFourInARow(nextStep, step, stepCode)) {
                     // I bet this will break. Let's see. Yep.
-                    const std::vector<Vec2> newRoute = pConcatenate(routeSoFar, { nextStep });
-                    minimumHeat(heatMap, bests, newRoute);
+                    minimumHeat(heatMap, bests, visited, nextStep, step, stepCode);
                 }
             }
         }
     }
+    visited[step.y][step.x] = false;
 }
 
-std::vector<Grid<int>> makeBestGrids(const Grid<int8_t>& heatMap) {
-    std::vector<Grid<int>> bests(12);
+
+MemoGrids makeBestGrids(const Grid<int8_t>& heatMap) {
+    MemoGrids bests(12);
     for (auto& best : bests) {
-        best = createGrid(gridWidth(heatMap), gridHeight(heatMap), INT_MAX);
+        best = createGrid(gridWidth(heatMap), gridHeight(heatMap), MemoNode{});
     }
     return bests;
 }
 
 
-int findBestResult(std::vector<CostMap>& bests)
+int findBestResult(MemoGrids& bests)
 {
     const auto bestFinals = pTransform<std::vector<int>>(bests, [](const auto& best) {
-        return best[gridHeight(best) - 1][gridWidth(best) - 1];
+        return best[gridHeight(best) - 1][gridWidth(best) - 1].minCost;
         });
     return *std::min_element(bestFinals.begin(), bestFinals.end());
 }
+
+// I don't know what's wrong. Let's see if doing breadth-first and getting rid of recursive call overhead saves us
+int64_t dpThatFucker(
+    const HeatMap& heatMap) {
+
+    MemoGrids memoGrids = makeBestGrids(heatMap);
+    std::queue<std::pair<Vec2,StepCode>> stepQueue;
+    memoGrids[2][0][0].minCost = 0; // heatMap[0][0];  0,0 is _not_ added to heat
+    stepQueue.push({ { 0,0 },-1 });
+    for (;!stepQueue.empty();) {
+        const auto [ step, stepCode ] = stepQueue.front();
+        stepQueue.pop();
+        const auto lastDir = (stepCode == -1) ? Vec2{0, 0} : dirs[stepCode % 4];
+        for (const auto& dir : dirs) {
+            if (dir != -lastDir) {
+                const auto nextStep = step + dir;
+                if (inBounds(heatMap, nextStep)) {
+                    //                if (!visited(memoGrids, step, stepCode, nextStep)) {  // any way to do this line in constant time?
+                    if (!willBeFourInARow(nextStep, step, stepCode)) {
+                        const auto cost = heatMap[nextStep.y][nextStep.x] + 
+                            ((stepCode==-1)? 0 : memoGrids[stepCode][step.y][step.x].minCost);
+                        const auto nextStepCode = getStepCode(nextStep, step, stepCode);
+
+                        assert(nextStepCode < 12);
+                        if (cost < memoGrids[nextStepCode][nextStep.y][nextStep.x].minCost) {
+                            memoGrids[nextStepCode][nextStep.y][nextStep.x].minCost = cost;
+                            memoGrids[nextStepCode][nextStep.y][nextStep.x].lastStep = step;
+                            memoGrids[nextStepCode][nextStep.y][nextStep.x].lastStepCode = stepCode;
+
+                            if ((nextStep.y != gridHeight(heatMap) - 1) || (nextStep.x != gridWidth(heatMap) - 1)) {
+                                stepQueue.push({ nextStep, nextStepCode });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return findBestResult(memoGrids);
+}
+
+int moveCost(const HeatMap& heatMap, const Vec2& start, const Vec2& end) {
+    const Vec2 stepDelta = { sgn(end.x - start.x), sgn(end.y - start.y) };
+    assert(stepDelta.x == 0 || stepDelta.y == 0);
+    int cost = 0;
+    for (auto step = start;;) {
+        step += stepDelta;
+        cost += heatMap[step.y][step.x];
+        if (step == end) {
+            break;
+        }
+    }
+    return cost;
+}
+
+int dpThatFucker2(
+    const HeatMap& heatMap) {
+
+    std::vector<std::vector<std::vector<std::vector<int>>>> memoGrids(4); // [numSteps-1][dir][y][x]
+    for (auto& i : memoGrids) {
+        i.resize(4);
+        for (auto& j : i) {
+            j.resize(gridHeight(heatMap));
+            for (auto& k : j) {
+                k.resize(gridWidth(heatMap), INT_MAX);
+            }
+        }
+    }
+    
+    std::queue<MemoNode2> stepQueue;
+    memoGrids[0][0][0][0]/*.minCost*/ = 0; // heatMap[0][0];  0,0 is _not_ added to heat
+    stepQueue.push(MemoNode2{ 0, {0,0}, -1, 0, 0 });
+    for (; !stepQueue.empty();) {
+        const auto lastMemo = stepQueue.front();
+        stepQueue.pop();
+        //const auto lastDeltaNorm = Vec2{ sgn(lastDelta.y - lastDelta.y), sgn(lastDelta.x - lastDelta.x) };
+        const auto lastCardinalDir = lastMemo.lastCardinalDir;
+        const auto backwards = (lastCardinalDir == -1) ? (-1) : ((lastCardinalDir + 2) % 4);
+        const auto spot = lastMemo.spot;
+        //const auto lastNumSteps = 
+        //assert(lastDeltaNorm.x == 0 || lastDeltaNorm.y == 0);
+        // take 1, 2 or 3 steps
+        for (int numSteps = 1; numSteps <= 3; numSteps++) {
+            for (int cardinalDir = 0; cardinalDir < 4; cardinalDir++) {
+                const auto delta = dirs[cardinalDir];
+                if (cardinalDir != backwards) {
+                    if (cardinalDir != lastCardinalDir) { // we cover the route of going in the "same direction" with our 1, 2, or 3 steps
+                        const auto nextStep = spot + delta * numSteps;
+                        if (inBounds(heatMap, nextStep)) {
+                            const auto cost = moveCost(heatMap, spot, nextStep) + lastMemo.minCost;
+
+                            if (cost < memoGrids[numSteps - 1][cardinalDir][nextStep.y][nextStep.x]/*.minCost*/) {
+                                // memoGrid holds info about how we got here
+                                memoGrids[numSteps - 1][cardinalDir][nextStep.y][nextStep.x] = cost;
+                                //MemoNode2{ cost, spot, 0, 0 };
+
+                                if ((nextStep.y != gridHeight(heatMap) - 1) || (nextStep.x != gridWidth(heatMap) - 1)) {
+                                    // stepQueue holds info about where we're going
+                                    stepQueue.push(MemoNode2{ cost, nextStep, cardinalDir, numSteps });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    int bestResult = INT_MAX;
+    for (const auto& stepGrid : memoGrids) {
+        for (const auto& dirGrid : stepGrid) {
+            bestResult = std::min( bestResult, dirGrid[gridHeight(dirGrid) - 1][gridWidth(dirGrid) - 1]/*.minCost*/);
+        }
+    }
+    return bestResult;
+}
+
+
+int dpThatFuckerPart2(const HeatMap& heatMap) {
+
+    std::vector<std::vector<std::vector<std::vector<int>>>> memoGrids(4); // [numSteps-1][dir][y][x]
+    for (auto& i : memoGrids) {
+        i.resize(4);  // this time, options are to move 4 blocks in a new direction or 1 block in the same direction
+        for (auto& j : i) {
+            j.resize(gridHeight(heatMap));
+            for (auto& k : j) {
+                k.resize(gridWidth(heatMap), INT_MAX);
+            }
+        }
+    }
+
+    std::queue<MemoNode2> stepQueue;
+    memoGrids[0][0][0][0]/*.minCost*/ = 0; // heatMap[0][0];  0,0 is _not_ added to heat
+    stepQueue.push(MemoNode2{ 0, {0,0}, -1, 0 });
+    for (; !stepQueue.empty();) {
+        const auto lastMemo = stepQueue.front();
+        stepQueue.pop();
+        //const auto lastDeltaNorm = Vec2{ sgn(lastDelta.y - lastDelta.y), sgn(lastDelta.x - lastDelta.x) };
+        const auto lastCardinalDir = lastMemo.lastCardinalDir;
+        const auto backwards = (lastCardinalDir == -1) ? (-1) : ((lastCardinalDir + 2) % 4);
+        const auto spot = lastMemo.spot;
+        //const auto lastNumSteps = 
+        //assert(lastDeltaNorm.x == 0 || lastDeltaNorm.y == 0);
+        // take 1, 2 or 3 steps
+        for (int cardinalDir = 0; cardinalDir < 4; cardinalDir++) {
+            const auto delta = dirs[cardinalDir];
+            if (cardinalDir != backwards) {
+                int numSteps = (cardinalDir == lastCardinalDir) ? 1 : 4;
+                if (cardinalDir != lastCardinalDir || lastMemo.totalStepsInLine<10) { // we cover the route of going in the "same direction" with our 1, 2, or 3 steps
+                    const auto nextStep = spot + delta * numSteps;
+                    if (inBounds(heatMap, nextStep)) {
+                        const auto cost = moveCost(heatMap, spot, nextStep) + lastMemo.minCost;
+
+                        if (cost < memoGrids[numSteps - 1][cardinalDir][nextStep.y][nextStep.x]/*.minCost*/) {
+                            // memoGrid holds info about how we got here
+                            memoGrids[numSteps - 1][cardinalDir][nextStep.y][nextStep.x] = cost;
+                            //MemoNode2{ cost, spot, 0, 0 };
+
+                            if ((nextStep.y != gridHeight(heatMap) - 1) || (nextStep.x != gridWidth(heatMap) - 1)) {
+                                // stepQueue holds info about where we're going
+                                int totalStepsInLine = cardinalDir != lastCardinalDir ? numSteps : lastMemo.totalStepsInLine + 1;
+                                stepQueue.push(MemoNode2{ cost, nextStep, cardinalDir, numSteps, totalStepsInLine });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    int bestResult = INT_MAX;
+    for (const auto& stepGrid : memoGrids) {
+        for (const auto& dirGrid : stepGrid) {
+            bestResult = std::min(bestResult, dirGrid[gridHeight(dirGrid) - 1][gridWidth(dirGrid) - 1]/*.minCost*/);
+        }
+    }
+    return bestResult;
+}
+
 
 int doTheThing(const std::string& input) {
     const auto charGrid = parseGrid<char>(input);
     const Grid<int8_t> heatMap = gridTransform<int8_t>(charGrid, [](auto cell) { return cell - '0'; });
     auto bests = makeBestGrids(heatMap);
-    minimumHeat(heatMap, bests, { {0,0} });
+    auto visited = createGrid<bool>(gridWidth(heatMap), gridHeight(heatMap));
+    minimumHeat(heatMap, bests, visited, { 0,0 }, { 0,0 }, -1);
     return findBestResult(bests);
 }
+
+int64_t doTheThingDPBFS(const std::string& input) {
+    const auto charGrid = parseGrid<char>(input);
+    const Grid<int8_t> heatMap = gridTransform<int8_t>(charGrid, [](auto cell) { return cell - '0'; });
+    return dpThatFucker(heatMap);
+}
+
+int64_t doTheThingDPBFS2(const std::string& input) {
+    const auto charGrid = parseGrid<char>(input);
+    const Grid<int8_t> heatMap = gridTransform<int8_t>(charGrid, [](auto cell) { return cell - '0'; });
+    return dpThatFucker2(heatMap);
+}
+
+int64_t doTheThingPart2(const std::string& input) {
+    const auto charGrid = parseGrid<char>(input);
+    const Grid<int8_t> heatMap = gridTransform<int8_t>(charGrid, [](auto cell) { return cell - '0'; });
+    return dpThatFuckerPart2(heatMap);
+}
+
 
 // I know this isn't going to work, why am I doing it
 //totalCostFill(const HeatMap& heatMap) {
@@ -154,68 +431,135 @@ R"(2413432311323
 // my first set of test cases were wrong; you can take three steps, so 4 squares in a row is ok
 // 4 steps in a row is not
 TEST(Aoc17Test, horiz3Path_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {0,0}, {1,0}, {2,0} };
-    ASSERT_FALSE(willBeFourInARow(path, { 1,0 }));
+    //std::vector<Vec2> path = { {0,0}, {1,0}, {2,0} };
+    ASSERT_FALSE(willBeFourInARow({ 3,0 }, {2, 0}, 7));
 }
 
 TEST(Aoc17Test, vert3Path_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {0,1}, {0,2}, {0,3} };
-    ASSERT_FALSE(willBeFourInARow(path, { 0,1 }));
+   // std::vector<Vec2> path = { {0,1}, {0,2}, {0,3} };
+    ASSERT_FALSE(willBeFourInARow({ 0,4 }, { 0, 3 }, 8));
 }
 
 TEST(Aoc17Test, horiz4Path_willBeFourInARow_true) {
-    std::vector<Vec2> path = { {0,0}, {1,0}, {2,0}, {3,0} };
-    ASSERT_TRUE(willBeFourInARow(path, { 1,0 }));
+    //std::vector<Vec2> path = { {0,0}, {1,0}, {2,0}, {3,0} };
+    ASSERT_TRUE(willBeFourInARow({ 4,0 } ,{3,0}, 9));
 }
 
 TEST(Aoc17Test, vert4Path_willBeFourInARow_true) {
-    std::vector<Vec2> path = { {0,1}, {0,2}, {0,3}, {0,4} };
-    ASSERT_TRUE(willBeFourInARow(path, { 0,1 }));
+    //std::vector<Vec2> path = { {0,1}, {0,2}, {0,3}, {0,4} };
+    ASSERT_TRUE(willBeFourInARow({ 0,5 }, { 0,4 }, 10));
 }
 
-TEST(Aoc17Test, LPath_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {1,1}, {0,1}, {0,2}, {0,3} };
-    ASSERT_FALSE(willBeFourInARow(path, { 0,1 }));
-}
 
-TEST(Aoc17Test, longLPath_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {1,1}, {0,1}, {0,2}, {0,3}, {0,4} };
-    ASSERT_TRUE(willBeFourInARow(path, { 0,1 }));
-}
-TEST(Aoc17Test, shortL_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {0,1}, {1,1}, {2,1}, {2,2} };
-    ASSERT_FALSE(willBeFourInARow(path, { 0,1 }));
-}
-
-TEST(Aoc17Test, changedDir_willBeFourInARow_false) {
-    std::vector<Vec2> path = { {0,1}, {1,1}, {2,1}, {3,1} };
-    ASSERT_FALSE(willBeFourInARow(path, { 0,1 }));
-}
-
-TEST(Aoc17Test, simpleGrid_minimumHeat_10) {
+TEST(Aoc17Test, simpleGrid_minimumHeat_9) {
     Grid<int8_t> heatMap{
         {1,1,1,4,1,1,1},
         {1,1,1,1,1,1,1}
     };
     auto bestMap = makeBestGrids(heatMap);
-    
-    minimumHeat(heatMap, bestMap, { { 0,0 } });// , INT_MAX));
+    auto visited = createGrid<bool>(gridWidth(heatMap), gridHeight(heatMap));
 
-    ASSERT_EQ(10, findBestResult(bestMap));
+    minimumHeat(heatMap, bestMap, visited, { 0,0 }, { 0,0 }, -1);
+
+    ASSERT_EQ(9, findBestResult(bestMap));
 }
 
-TEST(Aoc17Test, simpleGrid_minimumHeat_12) {
+
+TEST(Aoc17Test, simpleGrid_dpbfs_9) {
+    Grid<int8_t> heatMap{
+        {1,1,1,4,1,1,1},
+        {1,1,1,1,1,1,1}
+    };
+    ASSERT_EQ(9, dpThatFucker(heatMap));
+}
+
+
+TEST(Aoc17Test, simpleGrid_dpbfs2_9) {
+    Grid<int8_t> heatMap{
+        {1,1,1,4,1,1,1},
+        {1,1,1,1,1,1,1}
+    };
+    ASSERT_EQ(9, dpThatFucker2(heatMap));
+}
+
+TEST(Aoc17Test, simpleGrid_minimumHeat_11) {
     Grid<int8_t> heatMap{
         {1,1,1,4,1},  // the best route to the 4 is straight there, but then we'd 
         {1,1,1,9,1},  // have to step on a 9. So we don't want it.
         {1,1,1,9,1}
     };
     auto bestMap = makeBestGrids(heatMap);
-    minimumHeat(heatMap, bestMap, { { 0,0 } });
-    ASSERT_EQ(12, findBestResult(bestMap));// , INT_MAX));
+    auto visited = createGrid<bool>(gridWidth(heatMap), gridHeight(heatMap));
+
+    minimumHeat(heatMap, bestMap, visited, { 0,0 }, { 0,0 }, -1);
+    ASSERT_EQ(11, findBestResult(bestMap));// , INT_MAX));
+}
+
+//
+//TEST(Aoc17Test, crossover_dpbfs) {
+//    Grid<int8_t> heatMap{
+//        {1,1,1,9,9},
+//        {9,9,1,9,1},
+//        {9,1,1,1,1},
+//        {1,1,1,9,1},
+//        {1,1,1,1,1}
+//    }
+//}
+
+TEST(Aoc17Test, simpleGrid_dpbfs_11) {
+    Grid<int8_t> heatMap{
+        {1,1,1,4,1},  // the best route to the 4 is straight there, but then we'd 
+        {1,1,1,9,1},  // have to step on a 9. So we don't want it.
+        {1,1,1,9,1}
+    };
+
+    ASSERT_EQ(11, dpThatFucker(heatMap));// , INT_MAX));
+}
+
+
+TEST(Aoc17Test, simpleGrid_dpbfs2_11) {
+    Grid<int8_t> heatMap{
+        {1,1,1,4,1},  // the best route to the 4 is straight there, but then we'd 
+        {1,1,1,9,1},  // have to step on a 9. So we don't want it.
+        {1,1,1,9,1}
+    };
+
+    ASSERT_EQ(11, dpThatFucker2(heatMap));// , INT_MAX));
+}
+
+const std::string part2sample =
+R"(111111111111
+999999999991
+999999999991
+999999999991
+999999999991
+)";
+
+TEST(Aoc17Test, part2sample_doTheThingPart2_71) {
+    ASSERT_EQ(71, doTheThingPart2(part2sample));
+}
+
+const std::string part2check4 =
+R"(111111999999
+999991111111
+911111111111
+111141119991
+111111119991
+111111119991
+111111119991
+)";
+
+TEST(Aoc17Test, part2check4_doTheThingPart2_33) {
+    ASSERT_EQ(33, doTheThingPart2(part2check4));
 }
 TEST(Aoc17Test, sampleInput_doTheThing_102) {
+//    ASSERT_EQ(102, doTheThingDPBFS(sampleInput));
     ASSERT_EQ(102, doTheThing(sampleInput));
+}
+
+TEST(Aoc17Test, sampleInput_doTheThingPart2_94) {
+    //    ASSERT_EQ(102, doTheThingDPBFS(sampleInput));
+    ASSERT_EQ(94, doTheThingPart2(sampleInput));
 }
 
 const std::string puzzleInput =
@@ -363,6 +707,18 @@ R"(33225436555465757345473667657666767645778648877448744746659575567686558789796
 354345422213222523445512245236255624325622555254435435356757456446675636464464443535576253654362224525232266665346633255235124354324132424545
 )";
 
-TEST(Aoc17Test, puzzleInput_doTheThing) {
-    ASSERT_EQ(0, doTheThing(puzzleInput));
+TEST(Aoc17Test, puzzleInput_doTheThingDPBFS) {
+    // 1156 is too high, 1154 too low
+    ASSERT_EQ(1155, doTheThingDPBFS(puzzleInput));
+}
+
+
+TEST(Aoc17Test, puzzleInput_doTheThingDPBFS2) {
+    // 1156 is too high, 1154 too low
+    ASSERT_EQ(1155, doTheThingDPBFS2(puzzleInput));
+}
+
+TEST(Aoc17Test, puzzleInput_doTheThingPart2) {
+    // 1318 is too high
+    ASSERT_EQ(0, doTheThingPart2(puzzleInput));
 }
