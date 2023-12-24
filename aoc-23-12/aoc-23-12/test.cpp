@@ -124,6 +124,28 @@ Permutations makePermutations(int64_t total, int64_t maxCount) {
 	return result;
 }
 
+Permutations makeFilteredPermutations(int64_t total, int64_t maxCount, const string& pattern) {
+	if (total == 0) {
+		return {};
+	}
+
+	Permutations result{ { total } };
+	for (int64_t i = total - 1; i > 0; i--)
+	{
+		auto remainingPerms = makePermutations(total - i, maxCount);
+		auto filtered = remainingPerms
+			| views::filter([maxCount](Groups& groups) {
+			return std::ssize(groups) < maxCount; // need space to add a new element
+				});
+		Permutations innerResult(filtered.begin(), filtered.end());
+		for (auto permIt = innerResult.begin(); permIt != innerResult.end(); permIt++) {
+			permIt->insert(permIt->begin(), i);
+		}
+		result.insert(result.end(), innerResult.begin(), innerResult.end());
+	}
+	return result;
+}
+
 // groups goes gap-group-gap-group-gap-group-(optional)gap. First gap is 0 if 0.
 bool patternMatch(const Groups& groups, const string& pattern) {
 	string resultStr;
@@ -202,7 +224,7 @@ int64_t findArrangements2(const string& pattern, const Groups& groups) {
 	for (int i = 0; i < 5; i++) {
 		newGroups = qConcatenate(newGroups, groups);
 	}
-	return findArrangements2(newPattern, newGroups);
+	return findArrangements(newPattern, newGroups);
 }
 
 int64_t doTheThing(const vector<pair<string, vector<int64_t>>>& input) {

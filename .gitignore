@@ -18,3 +18,4 @@ Microsoft.googletest.*
 *.log
 Browse.VC.*
 */build/*
+*/_deps/*
