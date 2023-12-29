@@ -320,14 +320,22 @@ int64_t gridWidth(const Grid<T>& grid) {
 }
 
 template <typename T>
-std::ostream& operator<<(std::ostream& os, const Grid<T>& grid) {
+std::ostream& printGrid(std::ostream& os, const Grid<T>& grid, const std::string& delim) {
 	for (cauto& row: grid) {
 		for (cauto& cell : row) {
-			std::cout << cell;
+			std::cout << cell << delim;
 		}
 		std::cout << std::endl;
 	}
 	return os;
+}
+
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const std::vector<T>& container) {
+	for (auto it = container.begin(); it != container.end(); ++it) {
+		std::cout << *it << ", ";
+	}
+	return out;
 }
 
 using Grid8 = Grid<int8_t>;
